@@ -6,6 +6,8 @@ use App\Actions\PerformWalletTransaction;
 use App\Enums\WalletTransactionType;
 use App\Exceptions\InsufficientBalance;
 use App\Models\Wallet;
+use App\Notifications\LowWalletBalance;
+use Illuminate\Support\Facades\Notification;
 
 use function Pest\Laravel\assertDatabaseCount;
 use function Pest\Laravel\assertDatabaseHas;
@@ -87,4 +89,30 @@ test('force a debit transaction when balance is insufficient', function () {
         'type' => WalletTransactionType::DEBIT,
         'reason' => 'test',
     ]);
+});
+
+test('notify user if balance is low', function () {
+    Notification::fake();
+    $wallet = Wallet::factory()->forUser()->richChillGuy()->create();
+    $this->action->execute($wallet, WalletTransactionType::DEBIT, 999_900, 'test');
+    $user = $wallet->user;
+
+    Notification::assertSentTo(
+        $user,
+        LowWalletBalance::class,
+        function ($notification, $channels) use ($user) {
+            $mailData = $notification->toMail($user)->toArray();
+            expect($mailData['introLines'][0])->toBe('The amount of your balance is under 10€.');
+
+            return true;
+        }
+    );
+});
+
+test('not notify user if balance is not low', function () {
+    Notification::fake();
+    $wallet = Wallet::factory()->forUser()->richChillGuy()->create();
+    $this->action->execute($wallet, WalletTransactionType::DEBIT, 100, 'test');
+
+    Notification::assertNothingSent();
 });
